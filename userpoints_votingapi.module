@@ -1,0 +1,365 @@
+<?php
+    
+/**
+ * Implementation of hook_form_alter().
+ *
+ * Extends User Points module with Voting API settings.
+ */ 
+function userpoints_votingapi_form_userpoints_admin_settings_alter(&$form, &$form_state, $form_id) {
+  // Shift system_settings_form buttons.
+  //$weight = $form['buttons']['#weight'];
+  //$form['buttons']['#weight'] = $weight + 1;
+  $form['#validate'][] = 'userpoints_votingapi_settings_validate';
+
+  $form['votingapi'] = array(
+    '#type' => 'fieldset',
+    '#title' => t('Voting API settings'),
+    '#collapsible' => TRUE,
+    '#collapsed' => TRUE,
+    '#description' => t(''),
+  );
+
+  $form['votingapi']['userpoints_votingapi_moderation'] = array(
+    '#type' => 'checkbox',
+    '#title' => t('Moderate votes'),
+    '#default_value' => variable_get('userpoints_votingapi_moderation', 0),
+    '#description' => t('Moderate User Points earned from votes.'),
+  );
+
+  $form['votingapi']['userpoints_votingapi_vote'] = array(
+    '#type' => 'textfield',
+    '#title' => t('!Points for voting', userpoints_translation()),
+    '#default_value' => variable_get('userpoints_votingapi_vote', 1),
+    '#size' => 5,
+    '#maxlength' => 5,
+  );
+
+  $form['votingapi']['userpoints_votingapi_threshold'] = array(
+    '#type' => 'select',
+    '#title' => t('Threshold'),
+    '#options' => drupal_map_assoc(array(0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50)),
+    '#default_value' => variable_get('userpoints_votingapi_threshold', 0),
+    '#description' => t('The maximum number of votes -- that will earn User Points -- in the selected period.<br />Select 0 to ignore.'),
+  );
+  
+  $form['votingapi']['userpoints_votingapi_period'] = array(
+    '#type' => 'select',
+    '#title' => t('Period'),
+    '#options' => array(
+      '3600' => t('Hourly'),
+      '86400' => t('Daily'),
+      '604800' => t('Weekly'),
+      '2592000' => t('Monthly (30 days)'),
+      '31536000' => t('Annually'),
+      ),
+    '#default_value' => variable_get('userpoints_votingapi_period', 86400),
+    '#description' => t('The time period during which the threshold applies.'),
+);
+  
+  $form['votingapi']['userpoints_votingapi_vote_karma_positive'] = array(
+    '#type' => 'textfield',
+    '#title' => t('!Points for author receiving positive votes', userpoints_translation()),
+    '#default_value' => variable_get('userpoints_votingapi_vote_karma_positive', 1),
+    '#size' => 5,
+    '#maxlength' => 5,
+  );
+  
+  $form['votingapi']['userpoints_votingapi_vote_karma_negative'] = array(
+    '#type' => 'textfield',
+    '#title' => t('!Points for author receiving negative votes', userpoints_translation()),
+    '#default_value' => variable_get('userpoints_votingapi_vote_karma_negative', -1),
+    '#size' => 5,
+    '#maxlength' => 5,
+  );
+
+  $form['votingapi']['userpoints_votingapi_tid'] = array(
+    '#type' => 'select',
+    '#title' => t('Category'),
+    '#default_value' => variable_get('userpoints_votingapi_tid', 0),
+    '#options' => userpoints_get_categories(),
+    '#description' => t('Votes will be assigned to this category. You can modify what categories are available by modifying the <a href="!url">Userpoints taxonomy</a>.', 
+      array('!url' => url('admin/content/taxonomy/'. variable_get(USERPOINTS_CATEGORY_DEFAULT_VID, '')))),
+  );
+  
+  $form['votingapi']['vote_karma_settings'] = array(
+    '#type' => 'fieldset',
+	'#tree' => TRUE,
+    '#title' => t('!Points for author receiving votes', userpoints_translation()),
+    '#prefix' => '<div id="names-fieldset-wrapper">',
+    '#suffix' => '</div>',
+  );
+
+  $form['votingapi']['num_tags'] = array(
+	'#type' => 'hidden',
+	'#default_value' => variable_get('num_tags', 0),
+  );
+  
+  if (!isset($form_state['num_tags'])) {
+    $form_state['num_tags'] = $form['votingapi']['num_tags']['#default_value'];
+  }
+  
+  $default_value_array = variable_get('vote_karma_settings', FALSE); // Loading the whole array in order to decrease db queries
+  
+  for ($i = 0; $i < $form_state['num_tags']; $i++) {    
+	array_key_exists($i, $default_value_array) ? $default_value = $default_value_array[$i] : $default_value = '';	
+	
+    $form['votingapi']['vote_karma_settings'][$i] = array(
+      '#type' => 'container',
+	  '#attributes' => array(
+	    'class' => array('container-inline', 'userpoints-votingapi-containter'),
+	  ),
+    );
+	$form['votingapi']['vote_karma_settings'][$i]['tag_name'] = array(
+	  '#type' => 'textfield',
+	  '#title' => t('Vote tag (optional)'),
+	  '#default_value' => userpoints_votingapi_default_value_print('tag_name', $default_value),
+	  '#size' => 10,
+	);
+	$form['votingapi']['vote_karma_settings'][$i]['min_value'] = array(
+	  '#type' => 'textfield',
+	  '#title' => t('Min vote value'),
+	  '#default_value' => userpoints_votingapi_default_value_print('min_value', $default_value),
+	  '#size' => 6,
+	  '#maxlength' => 6,
+	);
+	$form['votingapi']['vote_karma_settings'][$i]['max_value'] = array(
+	  '#type' => 'textfield',
+	  '#title' => t('Max vote value'),
+	  '#default_value' => userpoints_votingapi_default_value_print('max_value', $default_value),
+	  '#size' => 6,
+	  '#maxlength' => 5,
+	);
+	$form['votingapi']['vote_karma_settings'][$i]['karma_points'] = array(
+	  '#type' => 'textfield',
+	  '#title' => t('!Points for author', userpoints_translation()),
+	  '#default_value' => userpoints_votingapi_default_value_print('karma_points', $default_value),
+	  '#size' => 5,
+	  '#maxlength' => 5,
+	);
+  }
+  $form['votingapi']['vote_karma_settings']['add_tag'] = array(
+    '#type' => 'submit',
+    '#value' => t('Add one more'),
+    '#submit' => array('userpoints_votingapi_add_more_add_one'),
+	'#validate' => array(),
+    '#ajax' => array(
+      'callback' => 'userpoints_votingapi_add_more_callback',
+      'wrapper' => 'names-fieldset-wrapper',
+    ),
+  );
+  if ($form_state['num_tags'] > 0) {
+    $form['votingapi']['vote_karma_settings']['remove_tag'] = array(
+      '#type' => 'submit',
+      '#value' => t('Remove one'),
+      '#submit' => array('userpoints_votingapi_add_more_remove_one'),
+	  '#validate' => array(),
+      '#ajax' => array(
+        'callback' => 'userpoints_votingapi_add_more_callback',
+        'wrapper' => 'names-fieldset-wrapper',
+      ),
+    );
+  }
+}
+
+function userpoints_votingapi_default_value_print($index, $default_value) {
+  return is_array($default_value) ? $default_value[$index] : $default_value;
+}
+
+/**
+ * Callback for both ajax-enabled buttons.
+ *
+ * Selects and returns the fieldset with the names in it.
+ */
+function userpoints_votingapi_add_more_callback($form, &$form_state) {
+  return $form['votingapi']['vote_karma_settings'];
+}
+
+/**
+ * Submit handler for the "add-one-more" button.
+ *
+ * Increments the max counter and causes a rebuild.
+ */
+function userpoints_votingapi_add_more_add_one($form, &$form_state) {
+  $form_state['num_tags']++;
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Submit handler for the "remove one" button.
+ *
+ * Decrements the max counter and causes a form rebuild.
+ */
+function userpoints_votingapi_add_more_remove_one($form, &$form_state) {
+  if ($form_state['num_tags'] > 0) {
+    $form_state['num_tags']--;
+  }
+  $form_state['rebuild'] = TRUE;
+}
+
+/**
+ * Saving temporary "num_tags" variable to the form
+ */
+function userpoints_votingapi_settings_validate($form, &$form_state) {
+	form_set_value($form['votingapi']['num_tags'], $form_state['num_tags'], $form_state);
+	$error = FALSE;
+	
+	for ($i = 0; $i < $form_state['num_tags']; $i++) {
+	  if (!is_numeric($form_state['values']['vote_karma_settings'][$i]['min_value'])) {
+	    form_set_error('vote_karma_settings][' . $i . '][min_value', t('"Min vote value" field must be a number.'));
+		$error = TRUE;
+	  }
+	  if (!is_numeric($form_state['values']['vote_karma_settings'][$i]['max_value'])) {
+	    form_set_error('vote_karma_settings][' . $i . '][max_value', t('"Max vote value" field must be a number.'));
+		$error = TRUE;
+	  }
+	  if (!is_numeric($form_state['values']['vote_karma_settings'][$i]['karma_points'])) {
+	    form_set_error('vote_karma_settings][' . $i . '][karma_points', t('"Points for author" field must be a number.'));
+		$error = TRUE;
+	  }
+	}
+	if ($error)
+	  $_SESSION['messages']['error'] = array_unique($_SESSION['messages']['error']);
+}
+
+/**
+ * Implementation of hook_votingapi_insert().
+ *
+ */
+function userpoints_votingapi_votingapi_insert($vote) {
+  global $user;
+  
+  $vote = $vote[0];
+  $threshold = variable_get('userpoints_votingapi_threshold', 0);
+  
+  if (($threshold == '0') || (userpoints_votingapi_within_threshold($vote['uid'], $threshold))) {
+    userpoints_userpointsapi(array(
+      'uid' => $vote['uid'],
+      'points' => variable_get('userpoints_votingapi_vote', 1),
+      'moderate' => variable_get('userpoints_votingapi_moderation', 0),
+      'event' => $vote['tag'],
+      'entity_id' => $vote['entity_id'],
+      'entity_type' => $vote['entity_type'],
+      'operation' => t('vote'),
+      'tid' => variable_get('userpoints_votingapi_tid', 0),
+      'description' => t('Vote cast: !content_type !content_id.',  array('!content_type' => $vote['entity_type'], '!content_id' => $vote['entity_id'])),
+      )
+    );
+  }
+  
+  $uid = FALSE;
+  
+  switch ($vote['entity_type']) {
+    case 'node':
+      $uid = db_query("SELECT uid FROM {node} WHERE nid = :nid", array(':nid' => $vote['entity_id']))->fetchField();
+    break;
+	
+    case 'comment':
+      $uid = db_query("SELECT uid FROM {comment} WHERE cid = :cid", array(':cid' => $vote['entity_id']))->fetchField();
+    break;
+	
+    case 'user':
+      $uid = $vote['entity_id'];
+    break;
+  }
+  
+  if ($uid && $user->uid !== $uid) {
+	$points = userpoints_votingapi_points_get($vote['tag'], $vote['value']);	
+    userpoints_userpointsapi(array(
+      'uid' => $uid,
+      'points' => $points,
+      'moderate' => variable_get('userpoints_votingapi_moderation', 0),
+      'event' => $vote['tag'],
+      'entity_id' => $vote['entity_id'],
+      'entity_type' => $vote['entity_type'],
+      'operation' => t('vote'),
+      'tid' => variable_get('userpoints_votingapi_tid', 0),
+      'description' => t('Vote cast: !content_type !content_id.', array('!content_type' => $vote['entity_type'], '!content_id' => $vote['entity_id'])),
+      )
+    );
+  }
+}
+
+/**
+ * Implementation of hook_votingapi_delete().
+ *
+ */
+function userpoints_votingapi_votingapi_delete($vote) {
+  global $user;
+  
+  $vote_message_ = print_r($vote, true);
+  $vote = $vote[0];
+  watchdog('userpoints_votingapi_votingapi', $vote_message_);
+  $threshold = variable_get('userpoints_votingapi_threshold', 0);
+  
+  if (($threshold == '0') || (userpoints_votingapi_within_threshold($vote['uid'], $threshold))) {
+    userpoints_userpointsapi(array(
+      'uid' => $vote['uid'],
+      'points' => -1 * variable_get('userpoints_votingapi_vote', 1),
+      'moderate' => variable_get('userpoints_votingapi_moderation', 0),
+      'event' => $vote['tag'],
+      'entity_id' => $vote['entity_id'],
+      'entity_type' => $vote['entity_type'],
+      'operation' => t('vote'),
+      'tid' => variable_get('userpoints_votingapi_tid', 0),
+      'description' => t('Vote cancelled: !content_type !content_id.', array('!content_type' => $vote['entity_type'], '!content_id' => $vote['entity_id'])),
+      )
+    );
+  }
+  
+  $uid = FALSE;
+    
+  switch ($vote['entity_type']) {
+    case 'node':
+      $uid = db_query("SELECT uid FROM {node} WHERE nid = :nid", array(':nid' => $vote['entity_id']))->fetchField();
+    break;
+    
+    case 'comment':
+      $uid = db_query("SELECT uid FROM {comment} WHERE cid = :cid", array(':cid' => $vote['entity_id']))->fetchField();
+    break;
+    
+    case 'user':
+      $uid = $vote['entity_id'];
+    break;
+  }
+    
+  if ($uid && $user->uid !== $uid) {
+	$points = userpoints_votingapi_points_get($vote['tag'], $vote['value']);	
+    userpoints_userpointsapi(array(
+      'uid' => $uid,
+      'points' => -1 * $points,
+      'moderate' => variable_get('userpoints_votingapi_moderation', 0),
+      'event' => $vote['tag'],
+      'entity_id' => $vote['entity_id'],
+      'entity_type' => $vote['entity_type'],
+      'operation' => t('vote'),
+      'tid' => variable_get('userpoints_votingapi_tid', 0),
+      'description' => t('Vote cancelled: !content_type !content_id.', array('!content_type' => $vote['entity_type'], '!content_id' => $vote['entity_id'])),
+      )
+    );
+  }
+}
+
+function userpoints_votingapi_points_get($tag, $value) {
+  $num_tags = variable_get('num_tags', 0);  
+  if ($num_tags == 0) // If there is no settings, we have to return 0
+    return 0;
+
+  $karma_settings = variable_get('vote_karma_settings', FALSE);
+  
+  for ($i = 0; $i < $num_tags; $i++) {
+    if ($tag == $karma_settings[$i]['tag_name'] && $value >= $karma_settings[$i]['min_value'] && $value <= $karma_settings[$i]['max_value']) {
+	  return $karma_settings[$i]['karma_points'];
+	}
+	if (!isset($default_karma_value) && empty($karma_settings[$i]['tag_name']) && $value >= $karma_settings[$i]['min_value'] && $value <= $karma_settings[$i]['max_value'])
+	{
+	  $default_karma_value = $karma_settings[$i]['karma_points'];
+	}
+  }
+  
+  return $default_karma_value;
+}
+
+function userpoints_votingapi_within_threshold($uid, $threshold) {
+  $number = db_result(db_query("SELECT COUNT(*) FROM {userpoints_txn} WHERE operation = 'vote' AND uid = %d AND time_stamp > %d", $uid, time() - variable_get('userpoints_votingapi_period', 86400)));
+  return ($number < $threshold ? TRUE : FALSE);
+}
