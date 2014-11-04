@@ -6,9 +6,6 @@
  * Extends User Points module with Voting API settings.
  */ 
 function userpoints_votingapi_form_userpoints_admin_settings_alter(&$form, &$form_state, $form_id) {
-  // Shift system_settings_form buttons.
-  //$weight = $form['buttons']['#weight'];
-  //$form['buttons']['#weight'] = $weight + 1;
   $form['#validate'][] = 'userpoints_votingapi_settings_validate';
 
   $form['votingapi'] = array(
@@ -55,22 +52,6 @@ function userpoints_votingapi_form_userpoints_admin_settings_alter(&$form, &$for
     '#default_value' => variable_get('userpoints_votingapi_period', 86400),
     '#description' => t('The time period during which the threshold applies.'),
 );
-  
-  $form['votingapi']['userpoints_votingapi_vote_karma_positive'] = array(
-    '#type' => 'textfield',
-    '#title' => t('!Points for author receiving positive votes', userpoints_translation()),
-    '#default_value' => variable_get('userpoints_votingapi_vote_karma_positive', 1),
-    '#size' => 5,
-    '#maxlength' => 5,
-  );
-  
-  $form['votingapi']['userpoints_votingapi_vote_karma_negative'] = array(
-    '#type' => 'textfield',
-    '#title' => t('!Points for author receiving negative votes', userpoints_translation()),
-    '#default_value' => variable_get('userpoints_votingapi_vote_karma_negative', -1),
-    '#size' => 5,
-    '#maxlength' => 5,
-  );
 
   $form['votingapi']['userpoints_votingapi_tid'] = array(
     '#type' => 'select',
@@ -101,7 +82,7 @@ function userpoints_votingapi_form_userpoints_admin_settings_alter(&$form, &$for
   $default_value_array = variable_get('vote_karma_settings', FALSE); // Loading the whole array in order to decrease db queries
   
   for ($i = 0; $i < $form_state['num_tags']; $i++) {    
-	array_key_exists($i, $default_value_array) ? $default_value = $default_value_array[$i] : $default_value = '';	
+	$default_value = array_key_exists($i, $default_value_array) ? $default_value_array[$i] : NULL;	
 	
     $form['votingapi']['vote_karma_settings'][$i] = array(
       '#type' => 'container',
@@ -118,14 +99,14 @@ function userpoints_votingapi_form_userpoints_admin_settings_alter(&$form, &$for
 	$form['votingapi']['vote_karma_settings'][$i]['min_value'] = array(
 	  '#type' => 'textfield',
 	  '#title' => t('Min vote value'),
-	  '#default_value' => userpoints_votingapi_default_value_print('min_value', $default_value),
+	  '#default_value' => is_array($default_value) ? $default_value['min_value'] : $default_value,
 	  '#size' => 6,
 	  '#maxlength' => 6,
 	);
 	$form['votingapi']['vote_karma_settings'][$i]['max_value'] = array(
 	  '#type' => 'textfield',
 	  '#title' => t('Max vote value'),
-	  '#default_value' => userpoints_votingapi_default_value_print('max_value', $default_value),
+	  '#default_value' => is_array($default_value) ? $default_value['max_value'] : $default_value,
 	  '#size' => 6,
 	  '#maxlength' => 5,
 	);
@@ -161,10 +142,6 @@ function userpoints_votingapi_form_userpoints_admin_settings_alter(&$form, &$for
   }
 }
 
-function userpoints_votingapi_default_value_print($index, $default_value) {
-  return is_array($default_value) ? $default_value[$index] : $default_value;
-}
-
 /**
  * Callback for both ajax-enabled buttons.
  *
@@ -197,7 +174,9 @@ function userpoints_votingapi_add_more_remove_one($form, &$form_state) {
 }
 
 /**
- * Saving temporary "num_tags" variable to the form
+ * Validation of settings form.
+ *
+ * Saving temporary variable "num_tags" to the form state.
  */
 function userpoints_votingapi_settings_validate($form, &$form_state) {
 	form_set_value($form['votingapi']['num_tags'], $form_state['num_tags'], $form_state);
@@ -218,7 +197,9 @@ function userpoints_votingapi_settings_validate($form, &$form_state) {
 	  }
 	}
 	if ($error)
+	{
 	  $_SESSION['messages']['error'] = array_unique($_SESSION['messages']['error']);
+	}
 }
 
 /**
@@ -263,10 +244,9 @@ function userpoints_votingapi_votingapi_insert($vote) {
   }
   
   if ($uid && $user->uid !== $uid) {
-	$points = userpoints_votingapi_points_get($vote['tag'], $vote['value']);	
     userpoints_userpointsapi(array(
       'uid' => $uid,
-      'points' => $points,
+      'points' => userpoints_votingapi_points_get($vote['tag'], $vote['value']),
       'moderate' => variable_get('userpoints_votingapi_moderation', 0),
       'event' => $vote['tag'],
       'entity_id' => $vote['entity_id'],
@@ -323,10 +303,9 @@ function userpoints_votingapi_votingapi_delete($vote) {
   }
     
   if ($uid && $user->uid !== $uid) {
-	$points = userpoints_votingapi_points_get($vote['tag'], $vote['value']);	
     userpoints_userpointsapi(array(
       'uid' => $uid,
-      'points' => -1 * $points,
+      'points' => -1 * userpoints_votingapi_points_get($vote['tag'], $vote['value']),
       'moderate' => variable_get('userpoints_votingapi_moderation', 0),
       'event' => $vote['tag'],
       'entity_id' => $vote['entity_id'],
@@ -339,6 +318,10 @@ function userpoints_votingapi_votingapi_delete($vote) {
   }
 }
 
+/**
+ * Returns the number of points that a user receives based on settings.
+ *
+ */
 function userpoints_votingapi_points_get($tag, $value) {
   $num_tags = variable_get('num_tags', 0);  
   if ($num_tags == 0) // If there is no settings, we have to return 0
@@ -347,12 +330,14 @@ function userpoints_votingapi_points_get($tag, $value) {
   $karma_settings = variable_get('vote_karma_settings', FALSE);
   
   for ($i = 0; $i < $num_tags; $i++) {
-    if ($tag == $karma_settings[$i]['tag_name'] && $value >= $karma_settings[$i]['min_value'] && $value <= $karma_settings[$i]['max_value']) {
+	$value_in_range = $value >= $karma_settings[$i]['min_value'] && $value <= $karma_settings[$i]['max_value'];
+	
+    if ($tag == $karma_settings[$i]['tag_name'] && $value_in_range) {
 	  return $karma_settings[$i]['karma_points'];
 	}
-	if (!isset($default_karma_value) && empty($karma_settings[$i]['tag_name']) && $value >= $karma_settings[$i]['min_value'] && $value <= $karma_settings[$i]['max_value'])
+	elseif ($value_in_range)
 	{
-	  $default_karma_value = $karma_settings[$i]['karma_points'];
+	  return $karma_settings[$i]['karma_points'];
 	}
   }
   
